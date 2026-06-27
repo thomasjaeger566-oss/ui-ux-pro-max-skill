@@ -1,0 +1,16 @@
+{
+  "_comment": "Reference input for the Apify 'trudax/reddit-scraper' actor. The CLI builds this for you; paste it into the Apify console or an n8n/Make HTTP node to run the same scrape manually.",
+  "startUrls": [
+    { "url": "https://www.reddit.com/r/linkedinautomation/hot/" }
+  ],
+  "skipComments": false,
+  "skipUserPosts": true,
+  "skipCommunity": true,
+  "searchPosts": true,
+  "searchComments": false,
+  "maxItems": 2050,
+  "maxPostCount": 50,
+  "maxComments": 40,
+  "maxCommunitiesCount": 1,
+  "proxy": { "useApifyProxy": true }
+}

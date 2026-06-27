@@ -1,0 +1,9 @@
+[
+  {"dataType":"post","id":"p1","title":"How do I automate LinkedIn outreach without getting banned?","body":"I keep getting my account restricted when I send too many connection requests. Whats the best way to warm up an account?","url":"https://reddit.com/r/linkedinautomation/comments/p1","upVotes":240,"numberOfComments":3,"createdAt":1719400000},
+  {"dataType":"comment","postId":"p1","body":"The problem is sending too many requests per day. Best way to warm up is to start with 10 connection requests and scale slowly."},
+  {"dataType":"comment","postId":"p1","body":"Does anyone use Phantombuster for this? How do I avoid the LinkedIn ban with connection requests?"},
+  {"dataType":"comment","postId":"p1","body":"I keep getting restricted too. Warming up the account over two weeks fixed it for me."},
+  {"dataType":"post","id":"p2","title":"Best way to scrape leads from LinkedIn for cold outreach","body":"Struggling with finding a tool to scrape leads. How do I export profiles to a CRM automatically?","url":"https://reddit.com/r/linkedinautomation/comments/p2","upVotes":120,"numberOfComments":2,"createdAt":1719450000},
+  {"dataType":"comment","postId":"p2","body":"Best way to scrape leads is Sales Navigator plus an automation tool. The problem is staying under the daily limit."},
+  {"dataType":"comment","postId":"p2","body":"How do I connect this to my CRM? Does anyone have a no-code workflow for cold outreach?"}
+]
