@@ -151,6 +151,29 @@ Feed `topics.topics.md` straight into an LLM to draft posts, or use
 
 ---
 
+## n8n workflow (no-code version)
+
+`n8n-workflow.json` is the same method as an importable n8n flow — the format
+this is usually shared as in automation communities:
+
+```
+Manual Trigger ─▶ HTTP Request (Apify reddit-scraper, post + comments)
+              ─▶ Code node (groups post+comments, mines topics + voices)
+              ─▶ topics as items (pipe to Sheets / Slack / an LLM post writer)
+```
+
+Import it in n8n via **Workflows → Import from File**, then:
+
+1. In **"Apify: scrape posts + comments"**, replace `YOUR_APIFY_TOKEN` in the URL
+   (or attach an n8n Apify/HTTP credential), and edit the JSON body to set your
+   subreddit / `maxPostCount` / `maxComments`.
+2. Run it. The **"Mine topics"** Code node outputs one item per ranked topic
+   (`topic`, `mentions`, `engagement`, `score`, `hooks`, `voices`) — identical
+   logic to the Python tool, verified to produce the same results.
+3. Add an OpenAI/LLM node after it to turn each topic + hooks into a post.
+
+> The Code node is plain JS and self-contained — no extra n8n packages needed.
+
 ## Apify actor input (reference)
 
 The tool builds this automatically; shown here for transparency / reuse in

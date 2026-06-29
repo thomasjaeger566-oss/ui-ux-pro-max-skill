@@ -1,0 +1,82 @@
+{
+  "name": "Reddit Topic Scraper (post + comments -> topics)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "11111111-1111-1111-1111-111111111111",
+      "name": "When clicking Test",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/trudax~reddit-scraper/run-sync-get-dataset-items?token=YOUR_APIFY_TOKEN&clean=true",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"startUrls\": [\n    {\n      \"url\": \"https://www.reddit.com/r/linkedinautomation/hot/\"\n    }\n  ],\n  \"skipComments\": false,\n  \"skipUserPosts\": true,\n  \"skipCommunity\": true,\n  \"searchPosts\": true,\n  \"maxPostCount\": 50,\n  \"maxComments\": 40,\n  \"proxy\": {\n    \"useApifyProxy\": true\n  }\n}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "22222222-2222-2222-2222-222222222222",
+      "name": "Apify: scrape posts + comments",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ],
+      "notes": "Replace YOUR_APIFY_TOKEN, or swap the query token for an n8n credential. Edit jsonBody to change subreddit / limits."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reddit Topic Scraper -- topic mining (mirrors reddit_topic_scraper.py).\n// Input: all items from the Apify reddit-scraper dataset (posts + comments).\n// Output: one n8n item per ranked topic.\n\nconst STOP = new Set((\"a an the and or but if then than so to of in on at by for with \" +\n  \"without about into over after before under again further is are was were be been being \" +\n  \"have has had do does did doing this that these those i you he she it we they them my your \" +\n  \"our their me him her us as not no yes can will just dont im ive cant get got like really \" +\n  \"very much many more most some any all youre how what why when where which who whom whose \" +\n  \"there here out up down off get getting want need know also even still\").split(/\\s+/));\n\nconst WORD = /[a-zA-Z][a-zA-Z'-]{2,}/g;\nconst SENT = /(?<=[.!?])\\s+|\\n+/;\nconst PAIN = /\\bhow (do|can|to|should) i\\b|\\bis there a way\\b|\\bany(one|body) else\\b|\\bstruggling with\\b|\\bthe problem (is|with)\\b|\\bwhy (does|do|is|are|cant)\\b|\\bbest way to\\b|\\bdoes anyone\\b|\\bwhat('s| is) the best\\b|\\bhelp me\\b/i;\n\nfunction toks(t){ return (t.match(WORD)||[]).map(w=>w.toLowerCase()).filter(w=>!STOP.has(w)); }\nfunction author(it){ return String(it.author||it.username||it.authorName||it.user||\"\").replace(/^u\\//,\"\").trim(); }\nfunction toInt(v){ const n=parseInt(v,10); return isNaN(n)?0:n; }\n\nconst items = $input.all().map(i=>i.json);\n\n// --- group into posts with comments+authors ---\nconst posts = {};\nconst loose = {};\nfor (const it of items){\n  const kind = String(it.dataType||it.type||\"\").toLowerCase();\n  const isComment = kind===\"comment\" || (\"body\" in it && !(\"title\" in it));\n  if (!isComment && (it.title || it.postId==null)){\n    const pid = String(it.id||it.postId||it.url||Object.keys(posts).length);\n    posts[pid] = { id:pid, title:it.title||\"\", body:it.body||it.text||it.selftext||\"\",\n      url:it.url||\"\", score:toInt(it.upVotes||it.score||it.upvotes),\n      num:toInt(it.numberOfComments||it.numComments), author:author(it),\n      comments:[], authors:[] };\n  } else {\n    const parent = String(it.postId||it.parentId||it.threadId||\"\");\n    const text = it.body||it.text||\"\";\n    if (text){ (loose[parent]=loose[parent]||[]).push([text, author(it)]); }\n  }\n}\nfor (const parent of Object.keys(loose)){\n  let tgt = posts[parent];\n  if (!tgt){ const k=parent||(\"orphan-\"+Object.keys(posts).length);\n    tgt = posts[k] = posts[k]||{id:parent,title:\"(comments only)\",body:\"\",url:\"\",score:0,num:loose[parent].length,author:\"\",comments:[],authors:[]}; }\n  for (const [t,a] of loose[parent]){ tgt.comments.push(t); tgt.authors.push(a); }\n}\n\n// --- mine topics ---\nconst MIN_MENTIONS = 2, TOP_N = 40;\nconst topics = {};\nconst qbank = [];\nfor (const p of Object.values(posts)){\n  const engagement = (p.score + p.num + p.comments.length) + 1;\n  const blob = [p.title, p.body, ...p.comments].join(\" \");\n  const seen = new Set();\n  for (const sent of blob.split(SENT)){\n    const w = toks(sent);\n    for (let n=2;n<=3;n++) for (let i=0;i+n<=w.length;i++) seen.add(w.slice(i,i+n).join(\" \"));\n  }\n  for (const g of seen){\n    const t = topics[g] = topics[g] || {phrase:g,mentions:0,engagement:0,questions:[],sources:new Set(),voices:new Set()};\n    t.mentions++; t.engagement+=engagement; t.sources.add(p.url||p.id);\n  }\n  for (const sent of blob.split(SENT)){\n    const s=sent.trim();\n    if (s.length>=12 && s.length<=200 && (s.endsWith(\"?\")||PAIN.test(s))) qbank.push([s,engagement]);\n  }\n}\nconst score = t => t.mentions*(1+Math.sqrt(t.engagement))*(1+0.25*t.questions.length);\nlet ranked = Object.values(topics).filter(t=>t.mentions>=MIN_MENTIONS).sort((a,b)=>score(b)-score(a)).slice(0,TOP_N);\nqbank.sort((a,b)=>b[1]-a[1]);\nfor (const t of ranked){\n  const kw = new Set(t.phrase.split(\" \"));\n  for (const [q] of qbank){ if ([...kw].some(w=>toks(q).includes(w)) && !t.questions.includes(q)) t.questions.push(q); if (t.questions.length>=3) break; }\n  for (const p of Object.values(posts)){\n    const pt = new Set(toks(p.title+\" \"+p.body));\n    if (p.author && [...kw].every(w=>pt.has(w))) t.voices.add(p.author);\n    for (let i=0;i<p.comments.length;i++){ const ct=new Set(toks(p.comments[i])); if (p.authors[i] && [...kw].every(w=>ct.has(w))) t.voices.add(p.authors[i]); }\n  }\n}\nreturn ranked.map((t,i)=>({json:{\n  rank:i+1, topic:t.phrase, mentions:t.mentions, engagement:t.engagement,\n  score:Math.round(score(t)*10)/10, example_hook:t.questions[0]||\"\",\n  hooks:t.questions, sources:t.sources.size, voices:[...t.voices].slice(0,10)\n}}));"
+      },
+      "id": "33333333-3333-3333-3333-333333333333",
+      "name": "Mine topics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "When clicking Test": {
+      "main": [
+        [
+          {
+            "node": "Apify: scrape posts + comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apify: scrape posts + comments": {
+      "main": [
+        [
+          {
+            "node": "Mine topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateId": "reddit-topic-scraper"
+  }
+}
