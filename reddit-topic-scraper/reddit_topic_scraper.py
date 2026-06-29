@@ -168,7 +168,10 @@ class Post:
     score: int
     num_comments: int
     created: float
+    author: str = ""
     comments: list[str] = field(default_factory=list)
+    # author aligned by index with `comments` ("" if unknown)
+    authors: list[str] = field(default_factory=list)
 
 
 def _to_int(v: Any) -> int:
@@ -178,14 +181,21 @@ def _to_int(v: Any) -> int:
         return 0
 
 
+def _author_of(it: dict) -> str:
+    a = (it.get("author") or it.get("username") or it.get("authorName")
+         or it.get("user") or "")
+    return str(a).lstrip("u/").strip()
+
+
 def normalise_items(items: list[dict]) -> list[Post]:
     """
     The Apify Reddit actor emits a flat list mixing 'post' and 'comment' items.
-    Group comments under their parent post so we can mine post + comments
-    together (exactly the "first post AND its comments" model).
+    Group comments (with their author) under their parent post so we can mine
+    post + comments together -- exactly the "first post AND its comments" model,
+    while keeping track of *who* raised each point (prospects / voices).
     """
     posts: dict[str, Post] = {}
-    loose_comments: dict[str, list[str]] = defaultdict(list)
+    loose: dict[str, list[tuple[str, str]]] = defaultdict(list)  # parent -> [(text, author)]
 
     for it in items:
         kind = (it.get("dataType") or it.get("type") or "").lower()
@@ -201,22 +211,25 @@ def normalise_items(items: list[dict]) -> list[Post]:
                 score=_to_int(it.get("upVotes") or it.get("score") or it.get("upvotes")),
                 num_comments=_to_int(it.get("numberOfComments") or it.get("numComments")),
                 created=float(it.get("createdAt", 0) or 0) if str(it.get("createdAt", "")).replace(".", "").isdigit() else 0.0,
+                author=_author_of(it),
             )
         else:
             parent = str(it.get("postId") or it.get("parentId") or it.get("threadId") or "")
             text = it.get("body") or it.get("text") or ""
             if text:
-                loose_comments[parent].append(text)
+                loose[parent].append((text, _author_of(it)))
 
-    for pid, comments in loose_comments.items():
-        if pid in posts:
-            posts[pid].comments.extend(comments)
-        else:
+    for pid, pairs in loose.items():
+        target = posts.get(pid)
+        if target is None:
             # Comments whose parent post wasn't captured: keep as a synthetic post
-            posts.setdefault(pid or f"orphan-{len(posts)}", Post(
+            target = posts.setdefault(pid or f"orphan-{len(posts)}", Post(
                 id=pid, title="(comments only)", body="", url="", score=0,
-                num_comments=len(comments), created=0.0, comments=[],
-            )).comments.extend(comments)
+                num_comments=len(pairs), created=0.0,
+            ))
+        for text, author in pairs:
+            target.comments.append(text)
+            target.authors.append(author)
 
     return list(posts.values())
 
@@ -270,6 +283,7 @@ class Topic:
     engagement: int = 0          # summed post score + comment volume behind it
     questions: list[str] = field(default_factory=list)
     sources: set[str] = field(default_factory=set)
+    voices: set[str] = field(default_factory=set)   # who raised this (prospects)
 
     def score(self) -> float:
         # frequency x engagement, with a question bonus (questions = ready hooks)
@@ -332,6 +346,17 @@ def mine_topics(posts: list[Post], min_mentions: int = 2,
             if len(topic.questions) >= 3:
                 break
 
+    # attribute *voices*: which authors raised each topic (prospect shortlist).
+    # A phrase counts for a comment/post when all its words appear in that text.
+    for topic in ranked:
+        key_words = set(topic.phrase.split())
+        for post in posts:
+            if post.author and key_words <= set(tokens(f"{post.title} {post.body}")):
+                topic.voices.add(post.author)
+            for text, author in zip(post.comments, post.authors):
+                if author and key_words <= set(tokens(text)):
+                    topic.voices.add(author)
+
     return ranked
 
 
@@ -349,10 +374,11 @@ def write_outputs(topics: list[Topic], posts: list[Post], raw: list[dict],
     with open(f"{out}.topics.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["rank", "topic", "mentions", "engagement", "score",
-                    "example_question", "sources"])
+                    "example_question", "sources", "voices", "voice_names"])
         for i, t in enumerate(topics, 1):
             w.writerow([i, t.phrase, t.mentions, t.engagement, round(t.score(), 1),
-                        t.questions[0] if t.questions else "", len(t.sources)])
+                        t.questions[0] if t.questions else "", len(t.sources),
+                        len(t.voices), ", ".join(sorted(t.voices)[:10])])
 
     # markdown brief
     lines = [
@@ -373,6 +399,11 @@ def write_outputs(topics: list[Topic], posts: list[Post], raw: list[dict],
             lines.append("Ready-made hooks pulled from the threads:")
             for q in t.questions:
                 lines.append(f"- {q}")
+        if t.voices:
+            names = ", ".join(f"u/{v}" for v in sorted(t.voices)[:10])
+            extra = "" if len(t.voices) <= 10 else f" (+{len(t.voices) - 10} more)"
+            lines.append("")
+            lines.append(f"Raised by: {names}{extra}")
         lines.append("")
     with open(f"{out}.topics.md", "w", encoding="utf-8") as f:
         f.write("\n".join(lines))

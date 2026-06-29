@@ -29,7 +29,10 @@ niche  ->  source thread  ->  scrape POST + COMMENTS  ->  mine topics
    that double as ready-made content hooks.
 4. **Ranks** topics by `frequency × engagement` with a recency half-life and a
    question bonus.
-5. **Exports** `*.topics.csv`, a human-readable `*.topics.md` brief, and the
+5. **Attributes voices** — captures *which authors* raised each topic, giving
+   you a per-topic prospect shortlist (the r/linkedinautomation lead-gen angle:
+   find the people already talking about a pain point).
+6. **Exports** `*.topics.csv`, a human-readable `*.topics.md` brief, and the
    raw `*.raw.json` for reuse.
 
 The miner is **source-agnostic**: anything shaped like *post + comments* works,
@@ -135,7 +138,13 @@ LinkedIn audience's own words.
 Ready-made hooks pulled from the threads:
 - How do I avoid the LinkedIn ban with connection requests?
 - Best way to warm up an account before sending requests?
+
+Raised by: u/growthhacker_max, u/saas_sara, u/automation_andy (+12 more)
 ```
+
+The CSV adds `voices` (count) and `voice_names` columns so you can sort topics
+by how many distinct people raised them — i.e. the warmest content + outreach
+opportunities.
 
 Feed `topics.topics.md` straight into an LLM to draft posts, or use
 `topics.topics.csv` in a spreadsheet / n8n / Make pipeline.
